@@ -83,7 +83,8 @@ static inline void updateFix()
          fix.longitude,
          fix.altitude);
 
-    fix.flags = GPS_LOCATION_HAS_LAT_LONG | GPS_LOCATION_HAS_ACCURACY;
+    fix.flags = GPS_LOCATION_HAS_LAT_LONG | GPS_LOCATION_HAS_ACCURACY | GPS_LOCATION_HAS_SPEED;
+    fix.flags |= ( fix.altitude == 0.0f ? 0 : GPS_LOCATION_HAS_ALTITUDE);
 }
 
 static void
