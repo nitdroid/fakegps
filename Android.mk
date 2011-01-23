@@ -22,7 +22,14 @@ ifeq ($(BOARD_HAVE_FAKE_GPS),true)
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
-LOCAL_MODULE := libfakegps
+# HAL module implemenation, not prelinked and stored in
+# hw/<OVERLAY_HARDWARE_MODULE_ID>.<ro.product.board>.so
+include $(CLEAR_VARS)
+LOCAL_PRELINK_MODULE := false
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
+
+LOCAL_MODULE := gps.$(PRODUCT_BRAND)
+LOCAL_MODULE_TAGS := optional
 
 LOCAL_SHARED_LIBRARIES := \
 	libcutils
@@ -37,8 +44,6 @@ LOCAL_CFLAGS += \
 
 LOCAL_C_INCLUDES:= \
 # include any needed local header files
-
-LOCAL_PRELINK_MODULE := false
 
 include $(BUILD_SHARED_LIBRARY)
 

@@ -1,6 +1,6 @@
 /*
 **
-** Copyright (C) 2010 The NitDroid Project
+** Copyright (C) 2010, 2011 The NitDroid Project
 ** Copyright (C) 2008 The Android Open Source Project
 **
 ** Author: Alexey Roslyakov <alexey.roslyakov@newsycat.com>
@@ -29,7 +29,7 @@
 #include <cutils/log.h>
 #include <cutils/sockets.h>
 #include <cutils/properties.h>
-#include <hardware_legacy/gps.h>
+#include <hardware/gps.h>
 
 
 /*****************************************************************/
@@ -60,6 +60,7 @@ typedef struct {
 static GpsState  _gps_state[1];
 
 static GpsLocation fix = {
+    .size = sizeof(GpsLocation),
     .accuracy = 5,
 };
 
@@ -169,17 +170,14 @@ epoll_deregister( int  epoll_fd, int  fd )
  * when started, messages from the QEMU GPS daemon. these are simple NMEA sentences
  * that must be parsed to be converted into GPS fixes sent to the framework
  */
-static void*
+static void
 gps_state_thread( void*  arg )
 {
     GpsState*   state = (GpsState*) arg;
-    //NmeaReader  reader[1];
     int         epoll_fd   = epoll_create(2);
     int         started    = 0;
     int         gps_fd     = state->fd;
     int         control_fd = state->control[1];
-
-    //nmea_reader_init( reader );
 
     // register control file descriptors for polling
     epoll_register( epoll_fd, control_fd );
@@ -224,15 +222,14 @@ gps_state_thread( void*  arg )
                         if (!started) {
                             LOGD("gps thread starting  location_cb=%p", state->callbacks.location_cb);
                             started = 1;
+                            updateFix();
                             state->callbacks.location_cb(&fix);
-                            //nmea_reader_set_callback( reader, state->callbacks.location_cb );
                         }
                     }
                     else if (cmd == CMD_STOP) {
                         if (started) {
                             LOGD("gps thread stopping");
                             started = 0;
-                            //nmea_reader_set_callback( reader, NULL );
                         }
                     }
                 }
@@ -252,8 +249,6 @@ gps_state_thread( void*  arg )
                             break;
                         }
                         LOGD("received %d bytes: %.*s", ret, ret, buff);
-                        //for (nn = 0; nn < ret; nn++)
-                        //nmea_reader_addc( reader, buff[nn] );
                     }
                     LOGD("gps fd event end");
                 }
@@ -265,7 +260,7 @@ gps_state_thread( void*  arg )
         }
     }
 Exit:
-    return NULL;
+    {} // nothing
 }
 
 
@@ -277,25 +272,13 @@ gps_state_init( GpsState*  state )
     state->control[1] = -1;
     state->fd         = -1;
 
-    updateFix();
-    
-#if 0
-    state->fd = open("/dev/null", O_RDONLY );
-
-    if (state->fd < 0) {
-        LOGD("no gps emulation detected");
-        return;
-    }
-
-    LOGD("gps emulation will read from '%s' qemud channel", "fake" );
-#endif
-
     if ( socketpair( AF_LOCAL, SOCK_STREAM, 0, state->control ) < 0 ) {
         LOGE("could not create thread control socket pair: %s", strerror(errno));
         goto Fail;
     }
 
-    if ( pthread_create( &state->thread, NULL, gps_state_thread, state ) != 0 ) {
+    state->thread = state->callbacks.create_thread_cb("fakegps_cb", gps_state_thread, state);
+    if (!state->thread) {
         LOGE("could not create gps thread: %s", strerror(errno));
         goto Fail;
     }
@@ -321,16 +304,10 @@ static int
 fake_gps_init(GpsCallbacks* callbacks)
 {
     GpsState*  s = _gps_state;
+    s->callbacks = *callbacks;
 
     if (!s->init)
         gps_state_init(s);
-
-#if 0
-    if (s->fd < 0)
-        return -1;
-#endif
-
-    s->callbacks = *callbacks;
 
     return 0;
 }
@@ -394,10 +371,12 @@ fake_gps_delete_aiding_data(GpsAidingData flags)
 {
 }
 
-static int fake_gps_set_position_mode(GpsPositionMode mode, int fix_frequency)
+static int fake_gps_set_position_mode(GpsPositionMode mode, GpsPositionRecurrence recurrence,
+                                      uint32_t min_interval, uint32_t preferred_accuracy,
+                                      uint32_t preferred_time)
 {
     // FIXME - support fix_frequency
-    LOGD("%s(mode=%d, fix_frequency=%d)", __FUNCTION__, mode, fix_frequency);
+    LOGD("%s(mode=%d, min_interval=%u)", __FUNCTION__, mode, min_interval);
     return 0;
 }
 
@@ -407,24 +386,54 @@ fake_gps_get_extension(const char* name)
     return NULL;
 }
 
-static const GpsInterface  fakeGpsInterface = {
-    fake_gps_init,
-    fake_gps_start,
-    fake_gps_stop,
-    fake_gps_cleanup,
-    fake_gps_inject_time,
-    fake_gps_inject_location,
-    fake_gps_delete_aiding_data,
-    fake_gps_set_position_mode,
-    fake_gps_get_extension,
+static const GpsInterface fakeGpsInterface = {
+    .size = sizeof(GpsInterface),
+    .init = fake_gps_init,
+    .start = fake_gps_start,
+    .stop = fake_gps_stop,
+    .cleanup = fake_gps_cleanup,
+    .inject_time = fake_gps_inject_time,
+    .inject_location = fake_gps_inject_location,
+    .delete_aiding_data = fake_gps_delete_aiding_data,
+    .set_position_mode = fake_gps_set_position_mode,
+    .get_extension = fake_gps_get_extension,
 };
 
-const GpsInterface* gps_get_hardware_interface()
+static const GpsInterface* gps__get_gps_interface()
 {
     LOGD("%s", __FUNCTION__);
-#if 1
     return &fakeGpsInterface;
-#else
-    return 0;
-#endif
 }
+
+static int open_gps(const struct hw_module_t* module, char const* name,
+                    struct hw_device_t** device)
+{
+    struct gps_device_t *dev = malloc(sizeof(struct gps_device_t));
+    memset(dev, 0, sizeof(*dev));
+
+    dev->common.tag = HARDWARE_DEVICE_TAG;
+    dev->common.version = 0;
+    dev->common.module = (struct hw_module_t*)module;
+    dev->get_gps_interface = gps__get_gps_interface;
+
+    *device = (struct hw_device_t*)dev;
+    return 0;
+}
+
+static struct hw_module_methods_t fakegps_module_methods = {
+    .open = open_gps
+};
+
+/*
+ * The GPS Hardware Module
+ */
+struct hw_module_t HAL_MODULE_INFO_SYM =
+{
+    .tag           = HARDWARE_MODULE_TAG,
+    .version_major = 2,
+    .version_minor = 0,
+    .id            = GPS_HARDWARE_MODULE_ID,
+    .name          = "FakeGPS module",
+    .author        = "Alexey Roslyakov<alexey.roslyakov@newsycat.com>",
+    .methods       = &fakegps_module_methods,
+};
