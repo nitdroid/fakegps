@@ -79,7 +79,7 @@ static inline void updateFix()
     fix.latitude = getFloatProperty("hw.fakegps.latitude");
     fix.longitude = getFloatProperty("hw.fakegps.longitude");
     fix.altitude = getFloatProperty("hw.fakegps.altitude");
-    LOGD("latitude=%f, longitude=%f, altitude=%f",
+    ALOGD("latitude=%f, longitude=%f, altitude=%f",
          fix.latitude,
          fix.longitude,
          fix.altitude);
@@ -117,7 +117,7 @@ gps_state_start( GpsState*  s )
     while (ret < 0 && errno == EINTR);
 
     if (ret != 1)
-        LOGD("%s: could not send CMD_START command: ret=%d: %s",
+        ALOGD("%s: could not send CMD_START command: ret=%d: %s",
           __FUNCTION__, ret, strerror(errno));
 }
 
@@ -132,7 +132,7 @@ gps_state_stop( GpsState*  s )
     while (ret < 0 && errno == EINTR);
 
     if (ret != 1)
-        LOGD("%s: could not send CMD_STOP command: ret=%d: %s",
+        ALOGD("%s: could not send CMD_STOP command: ret=%d: %s",
              __FUNCTION__, ret, strerror(errno));
 }
 
@@ -183,7 +183,7 @@ gps_state_thread( void*  arg )
     epoll_register( epoll_fd, control_fd );
     //epoll_register( epoll_fd, gps_fd );
 
-    LOGD("gps thread running");
+    ALOGD("gps thread running");
 
     // now loop
     for (;;) {
@@ -193,13 +193,13 @@ gps_state_thread( void*  arg )
         nevents = epoll_wait( epoll_fd, events, 2, -1 );
         if (nevents < 0) {
             if (errno != EINTR)
-                LOGE("epoll_wait() unexpected error: %s", strerror(errno));
+                ALOGE("epoll_wait() unexpected error: %s", strerror(errno));
             continue;
         }
-        LOGD("gps thread received %d events", nevents);
+        ALOGD("gps thread received %d events", nevents);
         for (ne = 0; ne < nevents; ne++) {
             if ((events[ne].events & (EPOLLERR|EPOLLHUP)) != 0) {
-                LOGE("EPOLLERR or EPOLLHUP after epoll_wait() !?");
+                ALOGE("EPOLLERR or EPOLLHUP after epoll_wait() !?");
                 goto Exit;
             }
             if ((events[ne].events & EPOLLIN) != 0) {
@@ -209,18 +209,18 @@ gps_state_thread( void*  arg )
                 {
                     char  cmd = 255;
                     int   ret;
-                    LOGD("gps control fd event");
+                    ALOGD("gps control fd event");
                     do {
                         ret = read( fd, &cmd, 1 );
                     } while (ret < 0 && errno == EINTR);
 
                     if (cmd == CMD_QUIT) {
-                        LOGD("gps thread quitting on demand");
+                        ALOGD("gps thread quitting on demand");
                         goto Exit;
                     }
                     else if (cmd == CMD_START) {
                         if (!started) {
-                            LOGD("gps thread starting  location_cb=%p", state->callbacks.location_cb);
+                            ALOGD("gps thread starting  location_cb=%p", state->callbacks.location_cb);
                             started = 1;
                             updateFix();
                             state->callbacks.location_cb(&fix);
@@ -228,7 +228,7 @@ gps_state_thread( void*  arg )
                     }
                     else if (cmd == CMD_STOP) {
                         if (started) {
-                            LOGD("gps thread stopping");
+                            ALOGD("gps thread stopping");
                             started = 0;
                         }
                     }
@@ -236,7 +236,7 @@ gps_state_thread( void*  arg )
                 else if (fd == gps_fd)
                 {
                     char  buff[32];
-                    LOGD("gps fd event");
+                    ALOGD("gps fd event");
                     for (;;) {
                         int  nn, ret;
 
@@ -245,16 +245,16 @@ gps_state_thread( void*  arg )
                             if (errno == EINTR)
                                 continue;
                             if (errno != EWOULDBLOCK)
-                                LOGE("error while reading from gps daemon socket: %s:", strerror(errno));
+                                ALOGE("error while reading from gps daemon socket: %s:", strerror(errno));
                             break;
                         }
-                        LOGD("received %d bytes: %.*s", ret, ret, buff);
+                        ALOGD("received %d bytes: %.*s", ret, ret, buff);
                     }
-                    LOGD("gps fd event end");
+                    ALOGD("gps fd event end");
                 }
                 else
                 {
-                    LOGE("epoll_wait() returned unkown fd %d ?", fd);
+                    ALOGE("epoll_wait() returned unkown fd %d ?", fd);
                 }
             }
         }
@@ -273,17 +273,17 @@ gps_state_init( GpsState*  state )
     state->fd         = -1;
 
     if ( socketpair( AF_LOCAL, SOCK_STREAM, 0, state->control ) < 0 ) {
-        LOGE("could not create thread control socket pair: %s", strerror(errno));
+        ALOGE("could not create thread control socket pair: %s", strerror(errno));
         goto Fail;
     }
 
     state->thread = state->callbacks.create_thread_cb("fakegps_cb", gps_state_thread, state);
     if (!state->thread) {
-        LOGE("could not create gps thread: %s", strerror(errno));
+        ALOGE("could not create gps thread: %s", strerror(errno));
         goto Fail;
     }
 
-    LOGD("gps state initialized");
+    ALOGD("gps state initialized");
     return;
 
 Fail:
@@ -328,11 +328,11 @@ fake_gps_start()
     GpsState*  s = _gps_state;
 
     if (!s->init) {
-        LOGD("%s: called with uninitialized state !!", __FUNCTION__);
+        ALOGD("%s: called with uninitialized state !!", __FUNCTION__);
         return -1;
     }
 
-    LOGD("%s: called", __FUNCTION__);
+    ALOGD("%s: called", __FUNCTION__);
     gps_state_start(s);
     return 0;
 }
@@ -344,11 +344,11 @@ fake_gps_stop()
     GpsState*  s = _gps_state;
 
     if (!s->init) {
-        LOGD("%s: called with uninitialized state !!", __FUNCTION__);
+        ALOGD("%s: called with uninitialized state !!", __FUNCTION__);
         return -1;
     }
 
-    LOGD("%s: called", __FUNCTION__);
+    ALOGD("%s: called", __FUNCTION__);
     gps_state_stop(s);
     return 0;
 }
@@ -376,7 +376,7 @@ static int fake_gps_set_position_mode(GpsPositionMode mode, GpsPositionRecurrenc
                                       uint32_t preferred_time)
 {
     // FIXME - support fix_frequency
-    LOGD("%s(mode=%d, min_interval=%u)", __FUNCTION__, mode, min_interval);
+    ALOGD("%s(mode=%d, min_interval=%u)", __FUNCTION__, mode, min_interval);
     return 0;
 }
 
@@ -401,13 +401,14 @@ static const GpsInterface fakeGpsInterface = {
 
 static const GpsInterface* gps__get_gps_interface()
 {
-    LOGD("%s", __FUNCTION__);
+    ALOGD("%s", __FUNCTION__);
     return &fakeGpsInterface;
 }
 
 static int open_gps(const struct hw_module_t* module, char const* name,
                     struct hw_device_t** device)
 {
+  ALOGD("FAKEGPS open_gps");
     struct gps_device_t *dev = malloc(sizeof(struct gps_device_t));
     memset(dev, 0, sizeof(*dev));
 
